@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Navbar } from '@/components/navbar'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArrowUp, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CommandList, CommandItem } from '@/components/ui/command'
@@ -566,19 +565,35 @@ export default function ChartPage() {
                 </div>
               )}
             </div>
-            <Select value={timePeriod} onValueChange={(value) => setTimePeriod(value as TimePeriod)}>
-              <SelectTrigger className="w-[140px] h-14">
-                <SelectValue placeholder="Select period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1d">1 Day</SelectItem>
-                <SelectItem value="1w">1 Week</SelectItem>
-                <SelectItem value="1m">1 Month</SelectItem>
-                <SelectItem value="6m">6 Months</SelectItem>
-                <SelectItem value="1y">1 Year</SelectItem>
-                <SelectItem value="3y">3 Years</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              {(['1d', '1w', '1m', '6m', '1y', '3y'] as TimePeriod[]).map((period) => {
+                const labels: Record<TimePeriod, string> = {
+                  '1d': '1D',
+                  '1w': '1W',
+                  '1m': '1M',
+                  '6m': '6M',
+                  '1y': '1Y',
+                  '3y': '3Y',
+                }
+                const isSelected = timePeriod === period
+                return (
+                  <Button
+                    key={period}
+                    type="button"
+                    onClick={() => setTimePeriod(period)}
+                    className={`
+                      px-4 py-2 rounded-md text-sm font-medium transition-colors
+                      ${isSelected 
+                        ? 'bg-gray-900 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }
+                    `}
+                  >
+                    {labels[period]}
+                  </Button>
+                )
+              })}
+            </div>
           </div>
 
           <div className="w-full h-[500px]">
