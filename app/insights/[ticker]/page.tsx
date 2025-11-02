@@ -43,7 +43,7 @@ export default function InsightsPage() {
   }, [ticker])
 
   useEffect(() => {
-    // Auto-scroll to bottom when messages update (including during streaming)
+    // Auto-scroll to bottom when messages update
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
@@ -60,86 +60,19 @@ export default function InsightsPage() {
         throw new Error('Failed to fetch insights')
       }
 
-      // Add assistant message with empty content
+      const data = await response.json()
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
       setMessages([
         {
           role: 'assistant',
-          content: '',
+          content: data.content || '',
         },
       ])
-
-      // Handle streaming response
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-      let content = ''
-      let buffer = ''
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            // Process remaining buffer
-            if (buffer) {
-              const line = buffer.trim()
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6).trim()
-                if (data && data !== '[DONE]') {
-                  try {
-                    const parsed = JSON.parse(data)
-                    if (parsed.chunk) {
-                      content += parsed.chunk
-                      setMessages([
-                        {
-                          role: 'assistant',
-                          content: content,
-                        },
-                      ])
-                    }
-                  } catch (e) {
-                    // Skip invalid JSON
-                  }
-                }
-              }
-            }
-            setLoading(false)
-            break
-          }
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // Keep the last incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim()
-              if (data === '[DONE]') {
-                setLoading(false)
-                return
-              }
-
-              if (data) {
-                try {
-                  const parsed = JSON.parse(data)
-                  if (parsed.error) {
-                    throw new Error(parsed.error)
-                  }
-                  if (parsed.chunk) {
-                    content += parsed.chunk
-                    setMessages([
-                      {
-                        role: 'assistant',
-                        content: content,
-                      },
-                    ])
-                  }
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              }
-            }
-          }
-        }
-      }
+      setLoading(false)
     } catch (error) {
       console.error('Error loading insights:', error)
       setMessages([
@@ -184,86 +117,23 @@ export default function InsightsPage() {
         throw new Error('Failed to get response')
       }
 
-      // Handle streaming response
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-      let content = ''
-      let buffer = ''
+      const data = await response.json()
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            // Process remaining buffer
-            if (buffer) {
-              const line = buffer.trim()
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6).trim()
-                if (data && data !== '[DONE]') {
-                  try {
-                    const parsed = JSON.parse(data)
-                    if (parsed.chunk) {
-                      content += parsed.chunk
-                      setMessages((prev: Message[]) => {
-                        const newMessages = prev.slice(0, -1)
-                        return [
-                          ...newMessages,
-                          {
-                            role: 'assistant',
-                            content: content,
-                          },
-                        ]
-                      })
-                    }
-                  } catch (e) {
-                    // Skip invalid JSON
-                  }
-                }
-              }
-            }
-            setLoading(false)
-            break
-          }
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // Keep the last incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim()
-              if (data === '[DONE]') {
-                setLoading(false)
-                return
-              }
-
-              if (data) {
-                try {
-                  const parsed = JSON.parse(data)
-                  if (parsed.error) {
-                    throw new Error(parsed.error)
-                  }
-                  if (parsed.chunk) {
-                    content += parsed.chunk
-                    setMessages((prev: Message[]) => {
-                      const newMessages = prev.slice(0, -1)
-                      return [
-                        ...newMessages,
-                        {
-                          role: 'assistant',
-                          content: content,
-                        },
-                      ]
-                    })
-                  }
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              }
-            }
-          }
-        }
+      if (data.error) {
+        throw new Error(data.error)
       }
+
+      // Update the assistant message with the full response
+      setMessages((prev: Message[]) => {
+        const newMessages = prev.slice(0, -1)
+        return [
+          ...newMessages,
+          {
+            role: 'assistant',
+            content: data.content || '',
+          },
+        ]
+      })
     } catch (error) {
       console.error('Error getting response:', error)
       setMessages((prev: Message[]) => {
