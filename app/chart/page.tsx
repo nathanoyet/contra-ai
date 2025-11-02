@@ -730,7 +730,7 @@ export default function ChartPage() {
                     />
                     <YAxis
                       domain={['auto', 'auto']}
-                      tickFormatter={(value, index, ticks) => {
+                      tickFormatter={(value, index) => {
                         // Hide the first (bottom) tick label
                         if (index === 0) return ''
                         return Math.round(value).toString()
