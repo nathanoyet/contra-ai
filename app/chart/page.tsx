@@ -53,10 +53,18 @@ export default function ChartPage() {
   const [suggestions, setSuggestions] = useState<TickerMatch[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
+  const [isSearching, setIsSearching] = useState(false)
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [earningsMarkers, setEarningsMarkers] = useState<EarningsMarker[]>([])
   const [loading, setLoading] = useState(false)
   const [hoveredEarningsDate, setHoveredEarningsDate] = useState<string | null>(null)
+  const [companyName, setCompanyName] = useState<string | null>(null)
+  const [stockInfo, setStockInfo] = useState<{
+    price: number | null
+    changePercent: string | null
+    date: string | null
+  }>({ price: null, changePercent: null, date: null })
+  const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null)
   const router = useRouter()
   const supabase = createClient()
   const suggestionsRef = useRef<HTMLDivElement>(null)
@@ -79,6 +87,7 @@ export default function ChartPage() {
     } else {
       setChartData([])
       setEarningsMarkers([])
+      setStockInfo({ price: null, changePercent: null, date: null })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTicker, timePeriod])
@@ -105,9 +114,11 @@ export default function ChartPage() {
     if (!keywords.trim() || keywords.length < 2) {
       setSuggestions([])
       setShowSuggestions(false)
+      setIsSearching(false)
       return
     }
 
+    setIsSearching(true)
     try {
       const response = await fetch(`/api/search-ticker?keywords=${encodeURIComponent(keywords)}`)
       if (response.ok) {
@@ -123,6 +134,8 @@ export default function ChartPage() {
       console.error('Error searching tickers:', error)
       setSuggestions([])
       setShowSuggestions(false)
+    } finally {
+      setIsSearching(false)
     }
   }, [])
 
@@ -143,6 +156,7 @@ export default function ChartPage() {
   const handleSuggestionClick = (match: TickerMatch) => {
     setTicker(match.symbol)
     setSelectedTicker(match.symbol)
+    setCompanyName(match.name)
     setShowSuggestions(false)
     setSelectedIndex(-1)
     // Chart will load automatically via useEffect
@@ -199,19 +213,44 @@ export default function ChartPage() {
 
     setLoading(true)
     try {
-      const [priceResponse, earningsResponse] = await Promise.all([
+      const [priceResponse, earningsResponse, quoteResponse] = await Promise.all([
         fetch(`/api/chart-data?ticker=${selectedTicker}&period=${timePeriod}`),
         fetch(`/api/earnings-dates?ticker=${selectedTicker}&period=${timePeriod}`),
+        fetch(`/api/stock-quote?ticker=${selectedTicker}`),
       ])
 
       if (priceResponse.ok) {
         const priceData = await priceResponse.json()
         setChartData(priceData.data || [])
+        
+        // Get latest date from chart data
+        if (priceData.data && priceData.data.length > 0) {
+          const latestPoint = priceData.data[priceData.data.length - 1]
+          const date = new Date(latestPoint.timestamp)
+          const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
+          const day = date.getDate()
+          const month = date.toLocaleDateString('en-US', { month: 'short' })
+          const year = date.getFullYear()
+          const formattedDate = `${dayName} ${day} ${month} ${year}`
+          
+          setStockInfo(prev => ({ ...prev, date: formattedDate }))
+        }
       }
 
       if (earningsResponse.ok) {
         const earningsData = await earningsResponse.json()
         setEarningsMarkers(earningsData.markers || [])
+      }
+
+      if (quoteResponse.ok) {
+        const quoteData = await quoteResponse.json()
+        if (quoteData.price !== null && quoteData.changePercent !== null) {
+          setStockInfo(prev => ({
+            ...prev,
+            price: quoteData.price,
+            changePercent: quoteData.changePercent,
+          }))
+        }
       }
     } catch (error) {
       console.error('Error loading chart data:', error)
@@ -267,7 +306,7 @@ export default function ChartPage() {
       if (timePeriod === '1w') {
         tickCount = 7 // One per day
       } else if (timePeriod === '1m') {
-        tickCount = 8
+        tickCount = 10 // More ticks for 1-month to ensure even spacing
       } else if (timePeriod === '6m') {
         tickCount = 6
       } else if (timePeriod === '1y') {
@@ -275,63 +314,47 @@ export default function ChartPage() {
       } else {
         tickCount = 6 // 3y
       }
+      
       const ticks: string[] = []
       
-      // Always include first
-      ticks.push(chartData[0].date)
+      if (chartData.length === 0) {
+        return { xAxisTicks: undefined, tickVisibilityMap: new Map<string, boolean>() }
+      }
       
-      // Calculate evenly spaced intervals
-      // We want tickCount ticks total, so we need (tickCount - 2) intermediate ticks
-      // (excluding first and last)
-      if (chartData.length > 1) {
-        const totalTicks = tickCount
-        const intermediateTicks = totalTicks - 2 // Excluding first and last
-        const interval = intermediateTicks > 0 
-          ? Math.floor((chartData.length - 1) / (intermediateTicks + 1))
-          : chartData.length - 1
+      if (chartData.length === 1) {
+        ticks.push(chartData[0].date)
+      } else {
+        // Generate evenly spaced ticks across the entire data range
+        // Always include first and last, then space the rest evenly
+        const targetTicks = Math.min(tickCount, chartData.length)
         
-        // Add evenly spaced intermediate ticks
-        for (let i = interval; i < chartData.length - 1; i += interval) {
-          if (ticks.length < totalTicks - 1) { // Leave room for last tick
-            ticks.push(chartData[i].date)
-          }
+        // Use a simple approach: divide the data range into (targetTicks - 1) equal segments
+        const step = (chartData.length - 1) / (targetTicks - 1)
+        
+        // Always add first point
+        ticks.push(chartData[0].date)
+        
+        // Add evenly spaced intermediate points
+        for (let i = 1; i < targetTicks - 1; i++) {
+          const index = Math.round(i * step)
+          const safeIndex = Math.min(Math.max(index, 1), chartData.length - 2) // Ensure we're not at edges
+          ticks.push(chartData[safeIndex].date)
         }
         
-        // Always include last
+        // Always add last point
         ticks.push(chartData[chartData.length - 1].date)
         
-        // Ensure we have exactly the desired number of ticks by adjusting if needed
-        if (ticks.length < tickCount && chartData.length >= tickCount) {
-          // If we have fewer ticks than desired, add more evenly spaced ones
-          const additionalInterval = Math.floor(chartData.length / tickCount)
-          const additionalTicks: string[] = [chartData[0].date]
-          
-          for (let i = additionalInterval; i < chartData.length; i += additionalInterval) {
-            if (additionalTicks.length < tickCount) {
-              additionalTicks.push(chartData[i].date)
-            }
+        // Remove duplicates while preserving order
+        const uniqueTicks: string[] = []
+        const seen = new Set<string>()
+        for (const tick of ticks) {
+          if (!seen.has(tick)) {
+            seen.add(tick)
+            uniqueTicks.push(tick)
           }
-          
-          // Ensure last is included
-          if (!additionalTicks.includes(chartData[chartData.length - 1].date)) {
-            additionalTicks[additionalTicks.length - 1] = chartData[chartData.length - 1].date
-          }
-          
-          ticks.splice(0, ticks.length, ...additionalTicks.slice(0, tickCount))
-        } else if (ticks.length > tickCount) {
-          // If we have more ticks, select evenly spaced subset
-          const filtered: string[] = [ticks[0]] // First
-          
-          const step = Math.floor((ticks.length - 2) / (tickCount - 2))
-          for (let i = step; i < ticks.length - 1; i += step) {
-            if (filtered.length < tickCount - 1) {
-              filtered.push(ticks[i])
-            }
-          }
-          
-          filtered.push(ticks[ticks.length - 1]) // Last
-          ticks.splice(0, ticks.length, ...filtered)
         }
+        
+        ticks.splice(0, ticks.length, ...uniqueTicks)
       }
       
       // Create visibility map - only show rightmost of consecutive duplicates
@@ -379,6 +402,12 @@ export default function ChartPage() {
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
+      
+      // Update hovered point when tooltip is active
+      if (data && data.price !== undefined && data.timestamp !== undefined) {
+        setHoveredPoint(data as ChartDataPoint)
+      }
+      
       const date = new Date(data.timestamp)
       const price = payload[0].value.toFixed(2)
       
@@ -418,12 +447,21 @@ export default function ChartPage() {
                 <p className="text-xs text-gray-600">Surprise: {earningsMarker.surprise}</p>
               )}
               {earningsMarker.surprisePercentage && (
-                <p className="text-xs text-gray-600">Surprise %: {earningsMarker.surprisePercentage}%</p>
+                <p className="text-xs text-gray-600">
+                  Surprise %: {(() => {
+                    const percentage = parseFloat(earningsMarker.surprisePercentage)
+                    if (isNaN(percentage)) return earningsMarker.surprisePercentage + '%'
+                    return (Math.ceil(percentage * 100) / 100).toFixed(2) + '%'
+                  })()}
+                </p>
               )}
             </div>
           )}
         </div>
       )
+    } else {
+      // Reset hovered point when tooltip is not active
+      setHoveredPoint(null)
     }
     return null
   }
@@ -448,9 +486,15 @@ export default function ChartPage() {
       
       // For intraday periods, check if same day; for daily periods, check within range
       const sameDay = pointDateStr === markerDateStr
-      const withinRange = Math.abs(pointTimestamp - markerTimestamp) < 86400000 * 3 // Within 3 days
+      // Expand range for all periods to ensure we catch recent earnings
+      const withinRange = Math.abs(pointTimestamp - markerTimestamp) < 86400000 * 7 // Within 7 days
       
-      if (sameDay || (timePeriod !== '1d' && timePeriod !== '1w' && withinRange)) {
+      // For intraday (1d, 1w), match same day OR very close (within 1 day for recent earnings)
+      // For daily periods, match same day OR within 7 days
+      const isIntraday = timePeriod === '1d' || timePeriod === '1w'
+      const withinOneDay = Math.abs(pointTimestamp - markerTimestamp) < 86400000
+      
+      if (sameDay || (isIntraday && withinOneDay) || (!isIntraday && withinRange)) {
         const diff = Math.abs(pointTimestamp - markerTimestamp)
         if (diff < closestDiff) {
           closestDiff = diff
@@ -490,19 +534,6 @@ export default function ChartPage() {
             onMouseLeave={() => setHoveredEarningsDate(null)}
             style={{ cursor: 'pointer' }}
           />
-          {earningsPoint?.earningsLabel && isHovered && (
-            <text
-              x={cx}
-              y={cy - 18}
-              textAnchor="middle"
-              fontSize="11"
-              fill="#2563eb"
-              fontWeight="600"
-              className="pointer-events-none"
-            >
-              {earningsPoint.earningsLabel}
-            </text>
-          )}
         </g>
       )
     }
@@ -538,7 +569,14 @@ export default function ChartPage() {
                   <ArrowUp className="h-5 w-5" />
                 </Button>
               </form>
-              {showSuggestions && suggestions.length > 0 && (
+              {isSearching && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  </div>
+                </div>
+              )}
+              {showSuggestions && suggestions.length > 0 && !isSearching && (
                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
                   <CommandList className="max-h-[300px]">
                     {suggestions.map((match, index) => (
@@ -584,7 +622,7 @@ export default function ChartPage() {
                     className={`
                       px-4 py-2 rounded-md text-sm font-medium transition-colors border
                       ${isSelected 
-                        ? 'bg-gray-200 text-gray-700 border-gray-300' 
+                        ? 'bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-200' 
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                       }
                     `}
@@ -592,11 +630,64 @@ export default function ChartPage() {
                     {labels[period]}
                   </Button>
                 )
-              })}
-            </div>
-          </div>
+                  })}
+                </div>
+              </div>
 
-          <div className="w-full h-[500px]">
+              {/* Stock Info Card */}
+              {selectedTicker && chartData.length > 0 && (
+                <div className="mb-6">
+                  <div className="bg-white rounded-lg p-6">
+                    {(() => {
+                      // Use hovered point if available, otherwise use latest point
+                      const activePoint = hoveredPoint || chartData[chartData.length - 1]
+                      const firstPoint = chartData[0]
+                      const changePercent = firstPoint && activePoint 
+                        ? (((activePoint.price - firstPoint.price) / firstPoint.price) * 100).toFixed(2)
+                        : null
+                      
+                      const date = new Date(activePoint.timestamp)
+                      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
+                      const day = date.getDate()
+                      const month = date.toLocaleDateString('en-US', { month: 'short' })
+                      const year = date.getFullYear()
+                      const formattedDate = `${dayName} ${day} ${month} ${year}`
+                      
+                      return (
+                        <>
+                          <div className="flex items-baseline gap-2 mb-3">
+                            <span className="text-xl font-bold text-gray-900">{selectedTicker}</span>
+                            <span className="text-sm text-gray-600">{companyName || selectedTicker}</span>
+                          </div>
+                          <div className="flex items-baseline gap-3 mb-2">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-3xl font-bold text-gray-900">
+                                ${activePoint.price.toFixed(2)}
+                              </span>
+                              <span className="text-base text-gray-600">USD</span>
+                            </div>
+                            {changePercent && (
+                              <span
+                                className={`text-base font-medium ${
+                                  parseFloat(changePercent) >= 0
+                                    ? 'text-green-600'
+                                    : 'text-red-600'
+                                }`}
+                              >
+                                {parseFloat(changePercent) >= 0 ? '+' : ''}
+                                {changePercent}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500">{formattedDate}</div>
+                        </>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              <div className="w-full h-[500px]">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
@@ -607,7 +698,19 @@ export default function ChartPage() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 20, right: 20, left: 50, bottom: 80 }}>
+                  <LineChart 
+                    data={chartData} 
+                    margin={{ top: 20, right: 40, left: 50, bottom: 100 }}
+                    onMouseMove={(state: any) => {
+                      if (state && state.activePayload && state.activePayload.length > 0) {
+                        const activePoint = state.activePayload[0].payload as ChartDataPoint
+                        if (activePoint && activePoint.price !== undefined && activePoint.timestamp !== undefined) {
+                          setHoveredPoint(activePoint)
+                        }
+                      }
+                    }}
+                    onMouseLeave={() => setHoveredPoint(null)}
+                  >
                     <CartesianGrid 
                       stroke="#e5e7eb" 
                       strokeOpacity={0.5}
@@ -627,7 +730,11 @@ export default function ChartPage() {
                     />
                     <YAxis
                       domain={['auto', 'auto']}
-                      tickFormatter={(value) => Math.round(value).toString()}
+                      tickFormatter={(value, index, ticks) => {
+                        // Hide the first (bottom) tick label
+                        if (index === 0) return ''
+                        return Math.round(value).toString()
+                      }}
                       stroke="#9ca3af"
                       style={{ fontSize: '12px', fontWeight: '400' }}
                       tick={{ fill: '#6b7280' }}

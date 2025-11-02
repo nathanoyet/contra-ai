@@ -24,13 +24,67 @@ Databank Section Guidance:
 
 Use your expertise to synthesize these data points and deliver a concise, insightful summary that enables investors to assess possible trading opportunities based on post-earnings market reactions.`
 
-const FOLLOW_UP_PROMPT = `You are an expert stock analyst helping a user understand earnings data and market sentiment. 
-The user has already received initial earnings insights and is now asking follow-up questions.
+const FOLLOW_UP_PROMPT = `You are an elite hedge fund/investment analyst with over 40 years of experience at top-tier firms such as Bridgewater Associates and Point72, renowned for your rigorous and insightful analyses of US stocks. The user has already received initial earnings insights and is now asking follow-up questions about the stock.
 
-Based on the conversation history and the earnings data available, provide detailed, accurate answers to the user's questions. 
-If you need additional data to answer the question, let the user know what specific information would be helpful.
+Your responses should mirror the writing style and presentation format of a senior hedge fund analyst's research reports:
 
-Keep your responses concise but thorough. Reference specific metrics or data points when relevant.`
+**Formatting Requirements:**
+- Write in paragraph form, not bullet points or numbered lists
+- Use flowing, narrative prose that is easy to read and digest
+- Structure your response with clear, logical progression of ideas
+- Break into multiple paragraphs when transitioning between topics or concepts
+- Ensure each paragraph flows naturally into the next
+
+**Writing Style:**
+- Maintain the same elite analyst persona and tone as your initial earnings insights
+- Write with authority and precision, but in an accessible manner
+- Use sophisticated yet clear language that investors can easily understand
+- Avoid overly technical jargon unless necessary, and when used, provide context
+- Reference specific metrics, data points, and earnings figures to support your analysis
+
+**Content Guidelines:**
+- Provide detailed, accurate answers based on the conversation history and available earnings data
+- Synthesize information from multiple data sources (earnings history, market sentiment, price movements) to give comprehensive answers
+- If the available data cannot fully answer the question, acknowledge this and explain what specific information would be needed
+- Maintain objectivity and focus on actionable insights
+
+Your goal is to help the user understand the stock's earnings performance and market dynamics through well-structured, paragraph-form responses that read like they were written by an experienced hedge fund analyst.`
+
+const SPECIFIC_EARNINGS_PROMPT = `You are an elite hedge fund/investment analyst with over 40 years of experience at top-tier firms such as Bridgewater Associates and Point72. You are analyzing a specific earnings event that has already occurred.
+
+Your task is to provide a detailed analysis of this specific earnings announcement, focusing on:
+- The exact earnings period (e.g., Q3 FY24)
+- The reported earnings versus expectations
+- Market reaction and price movement following the announcement
+- Key factors that drove the earnings results
+- Whether the market reaction was justified based on the actual results
+- Potential trading opportunities based on the analysis
+
+Begin your analysis with clear context: state the company, the specific earnings period, the report date, and detail the stock price movement following the earnings announcement.
+
+Your analysis must be objective, unbiased, and between 250 and 350 words. Structure and clarity are essential—write in a way that is easily understood by investors seeking actionable insights.`
+
+const PRE_EARNINGS_PROMPT = `You are an elite hedge fund/investment analyst with over 40 years of experience at top-tier firms such as Bridgewater Associates and Point72, renowned for your rigorous and insightful analyses of US stocks. Your core specialty is assessing market sentiment and earnings expectations ahead of announcements to identify potential trading opportunities. Your mission is to help investors understand the landscape leading into earnings and identify potential outcomes that the market may not be fully pricing in.
+
+For each task, you will be provided with a comprehensive data bank about a specific stock leading into an upcoming earnings announcement, incorporating Market News and Sentiment, Earnings Estimates, Earnings History, and current market conditions. Your primary source of truth should be the provided data bank; reference external data only when strictly necessary.
+
+Instructions for Analysis:
+
+- Begin your summary with clear context: state the company, the expected earnings period (if known), the anticipated report date, and detail the stock price movement leading into the earnings announcement. Example: "Nvidia is expected to report its Q4 earnings on 15 January 2025. Over the past 30 days leading into this announcement, NVDA's stock price has increased by 8.2%." Adjust the wording as you see fit, but ensure you set the stage for the insights that follow.
+
+- Your analysis must be objective, unbiased, and between 200 and 300 words. Structure and clarity are essential—write in a way that is easily understood by investors seeking actionable insights.
+
+Databank Section Guidance:
+
+1. Market News and Sentiment: Focus on recent news and sentiment scores to characterize market perception leading into earnings. Identify key themes, narratives, and any consensus or divergence among news sources. Assess whether sentiment is bullish, bearish, or mixed, and consider what factors are driving the narrative.
+
+2. Earnings Estimates: Examine how EPS and revenue estimates have evolved approaching the earnings announcement. Rising estimates suggest growing bullishness and heightened expectations, while declining estimates indicate the opposite. Evaluate whether the current stock price reflects these evolving expectations or if there's a potential disconnect.
+
+3. Earnings History: Review recent quarterly results to establish context. Pay attention to earnings surprise patterns, whether the company has a history of beating or missing estimates, and how the market has historically reacted to these results. This provides crucial context for understanding potential outcomes.
+
+4. Current Market Environment: Analyze the broader market context, including sector performance, relevant macroeconomic factors, and any industry-specific trends that could influence the earnings announcement or market reaction.
+
+Use your expertise to synthesize these data points and deliver a concise, insightful summary that enables investors to prepare for the upcoming earnings announcement, understand the market's current positioning, and identify potential trading opportunities based on how the market may react to different earnings scenarios.`
 
 export class StockAnalysisAgent {
   private llm: ChatOpenAI
@@ -214,23 +268,28 @@ export class StockAnalysisAgent {
     }
   }
 
-  async fetchStockData(ticker: string) {
+  async fetchStockData(ticker: string, onStatusUpdate?: (status: string) => void) {
     try {
-      // Fetch all data in parallel for reduced latency
       const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${ticker}&apikey=${this.alphaVantageApiKey}`
       const newsUrl = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${ticker}&apikey=${this.alphaVantageApiKey}&limit=20`
       const earningsUrl = `https://www.alphavantage.co/query?function=EARNINGS&symbol=${ticker}&apikey=${this.alphaVantageApiKey}`
       const timeSeriesUrl = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&apikey=${this.alphaVantageApiKey}&outputsize=full`
       const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${this.alphaVantageApiKey}`
 
-      // Fetch all endpoints in parallel
-      const [overview, news, earnings, timeSeriesRaw, quote] = await Promise.all([
-        this.fetchAlphaVantageData(overviewUrl, 'OVERVIEW'),
-        this.fetchAlphaVantageData(newsUrl, 'NEWS_SENTIMENT'),
-        this.fetchAlphaVantageData(earningsUrl, 'EARNINGS'),
-        this.fetchAlphaVantageData(timeSeriesUrl, 'TIME_SERIES_DAILY'),
-        this.fetchAlphaVantageData(quoteUrl, 'GLOBAL_QUOTE'),
-      ])
+      // Fetch endpoints sequentially to allow status updates
+      onStatusUpdate?.('Fetching company overview...')
+      const overview = await this.fetchAlphaVantageData(overviewUrl, 'OVERVIEW')
+      
+      onStatusUpdate?.('Fetching earnings history...')
+      const earnings = await this.fetchAlphaVantageData(earningsUrl, 'EARNINGS')
+      
+      onStatusUpdate?.('Fetching price history...')
+      const timeSeriesRaw = await this.fetchAlphaVantageData(timeSeriesUrl, 'TIME_SERIES_DAILY')
+      
+      onStatusUpdate?.('Fetching market sentiment...')
+      const news = await this.fetchAlphaVantageData(newsUrl, 'NEWS_SENTIMENT')
+      
+      const quote = await this.fetchAlphaVantageData(quoteUrl, 'GLOBAL_QUOTE')
 
       // Note: Alpha Vantage doesn't have direct endpoints for:
       // - Earnings Estimates (we'll extract from EARNINGS)
@@ -249,8 +308,31 @@ export class StockAnalysisAgent {
     }
   }
 
-  async generateInitialInsights(ticker: string): Promise<string> {
-    const stockData = await this.fetchStockData(ticker)
+  private formatEarningsLabel(fiscalDateEnding: string): string {
+    const date = new Date(fiscalDateEnding)
+    const quarter = Math.floor(date.getMonth() / 3) + 1
+    const year = date.getFullYear()
+    const fiscalYear = year.toString().slice(-2)
+    return `Q${quarter} FY${fiscalYear}`
+  }
+
+  async generateInitialInsights(ticker: string, onStatusUpdate?: (status: string) => void): Promise<{ content: string; earningsPeriod: string | null }> {
+    const stockData = await this.fetchStockData(ticker, onStatusUpdate)
+    
+    onStatusUpdate?.('Generating earnings insights...')
+
+    // Get the most recent earnings period for the title
+    let earningsPeriod: string | null = null
+    try {
+      if (stockData.earnings && stockData.earnings.quarterlyEarnings && Array.isArray(stockData.earnings.quarterlyEarnings) && stockData.earnings.quarterlyEarnings.length > 0) {
+        const mostRecentEarnings = stockData.earnings.quarterlyEarnings[0]
+        if (mostRecentEarnings.fiscalDateEnding) {
+          earningsPeriod = this.formatEarningsLabel(mostRecentEarnings.fiscalDateEnding)
+        }
+      }
+    } catch (error) {
+      console.log('Could not determine earnings period:', error)
+    }
 
     // Calculate stock price movement from time series data
     let priceMovement = ''
@@ -320,6 +402,206 @@ Current Quote: ${quoteSummary}
       new SystemMessage(INITIAL_ANALYSIS_PROMPT),
       new HumanMessage(
         `Analyze the following comprehensive stock data bank for ${ticker} and provide your expert earnings analysis:\n\n${dataContext}`
+      ),
+    ]
+
+    const response = await this.llm.invoke(messages)
+    const content = response.content as string
+    return {
+      content,
+      earningsPeriod,
+    }
+  }
+
+  async generateSpecificEarningsAnalysis(ticker: string, earningsPeriod: string, reportDate: string, onStatusUpdate?: (status: string) => void): Promise<string> {
+    const stockData = await this.fetchStockData(ticker, onStatusUpdate)
+    
+    onStatusUpdate?.('Generating earnings insights...')
+    
+    // Find the specific earnings event from earnings history
+    let specificEarnings: any = null
+    if (stockData.earnings && stockData.earnings.quarterlyEarnings && Array.isArray(stockData.earnings.quarterlyEarnings)) {
+      // Try to match by report date or fiscal date ending
+      specificEarnings = stockData.earnings.quarterlyEarnings.find((earnings: any) => {
+        const reportDateStr = earnings.reportedDate || earnings.fiscalDateEnding
+        if (!reportDateStr) return false
+        // Normalize dates for comparison (compare YYYY-MM-DD format)
+        const earningsDate = new Date(reportDateStr).toISOString().split('T')[0]
+        const targetDate = new Date(reportDate).toISOString().split('T')[0]
+        return earningsDate === targetDate
+      })
+    }
+
+    // Calculate price movement after earnings announcement
+    let priceMovementAfterEarnings = ''
+    try {
+      if (stockData.timeSeries && !stockData.timeSeries.error && specificEarnings) {
+        const timeSeries = stockData.timeSeries['Time Series (Daily)']
+        const earningsDate = new Date(specificEarnings.reportedDate || specificEarnings.fiscalDateEnding)
+        earningsDate.setHours(0, 0, 0, 0)
+        
+        // Find price on earnings date and price 1 week after
+        const dates = Object.keys(timeSeries).sort()
+        let earningsPrice: number | null = null
+        let weekAfterPrice: number | null = null
+        
+        for (const dateStr of dates) {
+          const date = new Date(dateStr)
+          date.setHours(0, 0, 0, 0)
+          const diffDays = Math.floor((date.getTime() - earningsDate.getTime()) / (1000 * 60 * 60 * 24))
+          
+          if (diffDays === 0 || (diffDays >= 0 && diffDays <= 2 && earningsPrice === null)) {
+            earningsPrice = parseFloat(timeSeries[dateStr]['4. close'])
+          }
+          if (diffDays >= 7 && diffDays <= 9 && weekAfterPrice === null) {
+            weekAfterPrice = parseFloat(timeSeries[dateStr]['4. close'])
+          }
+        }
+        
+        if (earningsPrice && weekAfterPrice && earningsPrice !== 0) {
+          const change = ((weekAfterPrice - earningsPrice) / earningsPrice) * 100
+          priceMovementAfterEarnings = `Stock price movement after earnings: ${change >= 0 ? '+' : ''}${change.toFixed(2)}% one week after the announcement.`
+        }
+      }
+    } catch (error) {
+      console.log('Could not calculate price movement after earnings:', error)
+    }
+
+    // Summarize data focused on the earnings period
+    const overviewSummary = this.summarizeOverview(stockData.overview)
+    const newsSummary = this.summarizeNews(stockData.news)
+    
+    // Get earnings details for the specific period
+    const specificEarningsDetails = specificEarnings
+      ? JSON.stringify({
+          fiscalDateEnding: specificEarnings.fiscalDateEnding,
+          reportedDate: specificEarnings.reportedDate,
+          reportedEPS: specificEarnings.reportedEPS,
+          estimatedEPS: specificEarnings.estimatedEPS,
+          surprise: specificEarnings.surprise,
+          surprisePercentage: specificEarnings.surprisePercentage,
+        }, null, 2)
+      : 'Specific earnings details not available'
+
+    // Get recent earnings history for context
+    const earningsSummary = this.summarizeEarnings(stockData.earnings)
+    const timeSeriesSummary = this.summarizeTimeSeries(stockData.timeSeries)
+
+    const dataContext = `
+Stock Ticker: ${ticker}
+Earnings Period: ${earningsPeriod}
+Report Date: ${reportDate}
+${priceMovementAfterEarnings ? priceMovementAfterEarnings + '\n' : ''}
+Company Overview: ${overviewSummary}
+
+Market News and Sentiment (Around earnings period): ${newsSummary}
+
+Specific Earnings Event Details: ${specificEarningsDetails}
+
+Recent Earnings History (For context): ${earningsSummary}
+
+Time Series Summary: ${timeSeriesSummary}
+`
+
+    const messages = [
+      new SystemMessage(SPECIFIC_EARNINGS_PROMPT),
+      new HumanMessage(
+        `Analyze the following earnings data for ${ticker} for the ${earningsPeriod} earnings event reported on ${reportDate}:\n\n${dataContext}`
+      ),
+    ]
+
+    const response = await this.llm.invoke(messages)
+    return response.content as string
+  }
+
+  async generatePreEarningsAnalysis(ticker: string, reportDate: string, onStatusUpdate?: (status: string) => void): Promise<string> {
+    const stockData = await this.fetchStockData(ticker, onStatusUpdate)
+    
+    onStatusUpdate?.('Generating earnings insights...')
+
+    // Calculate recent price movement leading into earnings
+    let priceMovementLeadingIntoEarnings = ''
+    try {
+      if (stockData.timeSeries && !stockData.timeSeries.error) {
+        const timeSeries = stockData.timeSeries['Time Series (Daily)']
+        if (timeSeries && typeof timeSeries === 'object') {
+          const dates = Object.keys(timeSeries).sort().reverse()
+          // Get price 30 days before earnings and current price
+          const earningsDate = new Date(reportDate)
+          earningsDate.setHours(0, 0, 0, 0)
+          const thirtyDaysAgo = new Date(earningsDate)
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+          
+          let currentPrice: number | null = null
+          let price30DaysAgo: number | null = null
+          
+          for (const dateStr of dates) {
+            const date = new Date(dateStr)
+            date.setHours(0, 0, 0, 0)
+            const diffDays = Math.floor((earningsDate.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+            
+            if (diffDays >= 0 && diffDays <= 5 && currentPrice === null) {
+              currentPrice = parseFloat(timeSeries[dateStr]['4. close'])
+            }
+            if (diffDays >= 25 && diffDays <= 35 && price30DaysAgo === null) {
+              price30DaysAgo = parseFloat(timeSeries[dateStr]['4. close'])
+            }
+          }
+          
+          if (currentPrice && price30DaysAgo && price30DaysAgo !== 0) {
+            const change = ((currentPrice - price30DaysAgo) / price30DaysAgo) * 100
+            priceMovementLeadingIntoEarnings = `Stock price movement leading into earnings: ${change >= 0 ? '+' : ''}${change.toFixed(2)}% over the past 30 days.`
+          }
+        }
+      }
+    } catch (error) {
+      console.log('Could not calculate price movement leading into earnings:', error)
+    }
+
+    // Summarize data focused on pre-earnings context
+    const overviewSummary = this.summarizeOverview(stockData.overview)
+    const newsSummary = this.summarizeNews(stockData.news) // This will include recent news
+    
+    // Get upcoming earnings expectations
+    let earningsExpectations = 'Not available'
+    const earningsData = stockData.earnings
+    if (earningsData && earningsData.quarterlyEarnings && Array.isArray(earningsData.quarterlyEarnings)) {
+      // Find the most recent earnings to get trend
+      const recentEarnings = earningsData.quarterlyEarnings.slice(0, 4)
+      earningsExpectations = JSON.stringify(recentEarnings.map((e: any) => ({
+        fiscalDateEnding: e.fiscalDateEnding,
+        estimatedEPS: e.estimatedEPS,
+        reportedEPS: e.reportedEPS,
+      })), null, 2)
+    }
+
+    // Get current quote for context
+    const quoteSummary = stockData.quote && !stockData.quote.error
+      ? JSON.stringify({
+          symbol: stockData.quote['Global Quote']?.['01. symbol'],
+          price: stockData.quote['Global Quote']?.['05. price'],
+          change: stockData.quote['Global Quote']?.['09. change'],
+          changePercent: stockData.quote['Global Quote']?.['10. change percent']
+        }, null, 2)
+      : 'Quote data not available'
+
+    const dataContext = `
+Stock Ticker: ${ticker}
+Expected Report Date: ${reportDate}
+${priceMovementLeadingIntoEarnings ? priceMovementLeadingIntoEarnings + '\n' : ''}
+Company Overview: ${overviewSummary}
+
+Market News and Sentiment (Recent, leading into earnings): ${newsSummary}
+
+Earnings Expectations and Recent History: ${earningsExpectations}
+
+Current Quote: ${quoteSummary}
+`
+
+    const messages = [
+      new SystemMessage(PRE_EARNINGS_PROMPT),
+      new HumanMessage(
+        `Prepare a pre-earnings analysis for ${ticker} ahead of the earnings announcement expected on ${reportDate}:\n\n${dataContext}`
       ),
     ]
 
@@ -432,9 +714,12 @@ Current Quote: ${quoteSummary}
   async handleFollowUp(
     ticker: string,
     question: string,
-    conversationHistory: Array<{ role: string; content: string }>
+    conversationHistory: Array<{ role: string; content: string }>,
+    onStatusUpdate?: (status: string) => void
   ): Promise<string> {
-    const stockData = await this.fetchStockData(ticker)
+    const stockData = await this.fetchStockData(ticker, onStatusUpdate)
+    
+    onStatusUpdate?.('Generating response...')
 
     // Summarize data to reduce token usage
     const overviewSummary = this.summarizeOverview(stockData.overview)

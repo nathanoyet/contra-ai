@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Navbar } from '@/components/navbar'
-import { ArrowUp } from 'lucide-react'
+import { ArrowUp, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CommandList, CommandItem } from '@/components/ui/command'
 
@@ -193,7 +193,14 @@ export default function InsightsPage() {
               <ArrowUp className="h-5 w-5" />
             </Button>
           </form>
-          {showSuggestions && suggestions.length > 0 && (
+          {isSearching && (
+            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              </div>
+            </div>
+          )}
+          {showSuggestions && suggestions.length > 0 && !isSearching && (
             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
               <CommandList className="max-h-[300px]">
                 {suggestions.map((match, index) => (

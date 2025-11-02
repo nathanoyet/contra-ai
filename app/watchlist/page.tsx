@@ -67,6 +67,7 @@ export default function WatchlistPage() {
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [isAdding, setIsAdding] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -145,9 +146,11 @@ export default function WatchlistPage() {
     if (!keywords.trim()) {
       setSuggestions([])
       setShowSuggestions(false)
+      setIsSearching(false)
       return
     }
 
+    setIsSearching(true)
     try {
       const response = await fetch(`/api/search-ticker?keywords=${encodeURIComponent(keywords)}`)
       if (response.ok) {
@@ -158,6 +161,8 @@ export default function WatchlistPage() {
     } catch (error) {
       console.error('Error searching tickers:', error)
       setSuggestions([])
+    } finally {
+      setIsSearching(false)
     }
   }, [])
 
@@ -331,9 +336,10 @@ export default function WatchlistPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      <main className="flex-1 flex flex-col items-center justify-center px-6 pt-24 pb-12">
+      <main className="flex-1 flex flex-col items-center px-6 pt-[216px] pb-12">
         <div className="w-full max-w-6xl">
-          <div className="flex justify-end items-center mb-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-medium">Earnings Watchlist</h2>
             <Button
               onClick={() => setAddDialogOpen(true)}
               variant="outline"
@@ -470,7 +476,14 @@ export default function WatchlistPage() {
                 className="w-full h-14 pl-6 pr-14 !text-base rounded-lg border-gray-200 focus-visible:ring-0 placeholder:text-gray-400"
                 autoComplete="off"
               />
-              {showSuggestions && suggestions.length > 0 && (
+              {isSearching && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  </div>
+                </div>
+              )}
+              {showSuggestions && suggestions.length > 0 && !isSearching && (
                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
                   <CommandList className="max-h-[300px]">
                     {suggestions.map((match, index) => (

@@ -108,23 +108,38 @@ export async function GET(request: NextRequest) {
     const timeSeriesData = await timeSeriesResponse.json()
 
     const { startDate, endDate } = getDateRange(period)
+    // Normalize dates to start of day for accurate comparison
+    startDate.setHours(0, 0, 0, 0)
+    endDate.setHours(23, 59, 59, 999) // Include the entire end date
     const markers: EarningsMarker[] = []
 
     if (data.quarterlyEarnings && Array.isArray(data.quarterlyEarnings)) {
       const timeSeries = timeSeriesData['Time Series (Daily)'] || {}
 
       for (const earnings of data.quarterlyEarnings) {
-        const earningsDate = new Date(earnings.fiscalDateEnding)
+        // Use reportedDate if available (when earnings were actually announced), otherwise use fiscalDateEnding
+        const earningsDateStr = earnings.reportedDate || earnings.fiscalDateEnding
+        if (!earningsDateStr) continue
+        
+        const earningsDate = new Date(earningsDateStr)
+        earningsDate.setHours(0, 0, 0, 0)
         
         // Check if earnings date is within the selected period
         if (earningsDate >= startDate && earningsDate <= endDate) {
           // Find the closest trading day price (look both before and after earnings date)
+          // For recent earnings, expand search window to ensure we find a price
           let price = 0
           let closestDate = earningsDate.toISOString().split('T')[0]
           let closestDiff = Infinity
 
-          // Check dates around earnings date (±5 days)
-          for (let i = -5; i <= 5; i++) {
+          // For recent earnings (within last 2 weeks), expand search window to ±14 days
+          // For older earnings, use ±5 days
+          const now = new Date()
+          const daysSinceEarnings = Math.floor((now.getTime() - earningsDate.getTime()) / (1000 * 60 * 60 * 24))
+          const searchWindow = daysSinceEarnings <= 14 ? 14 : 5
+
+          // Check dates around earnings date
+          for (let i = -searchWindow; i <= searchWindow; i++) {
             const checkDate = new Date(earningsDate)
             checkDate.setDate(checkDate.getDate() + i)
             const dateStr = checkDate.toISOString().split('T')[0]
@@ -139,7 +154,12 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          if (price > 0) {
+          // Also check if the earnings date itself is within the period range
+          // This ensures very recent earnings (within the period) are included even if price data is limited
+          const closestDateObj = new Date(closestDate)
+          closestDateObj.setHours(0, 0, 0, 0)
+          
+          if (price > 0 && (closestDateObj >= startDate && closestDateObj <= endDate || earningsDate >= startDate && earningsDate <= endDate)) {
             markers.push({
               date: closestDate,
               label: formatEarningsLabel(earnings.fiscalDateEnding),
