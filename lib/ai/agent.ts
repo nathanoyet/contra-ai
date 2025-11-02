@@ -51,9 +51,9 @@ export class StockAnalysisAgent {
     })
 
     this.llm = new ChatOpenAI({
-      modelName: 'gpt-5',
-      temperature: 1, // GPT-5 only supports default temperature value of 1
-      streaming: true, // Enable streaming by default
+      modelName: 'gpt-4o', // Using gpt-4o as gpt-5 is not yet available
+      temperature: 0.7,
+      streaming: false, // Disabled streaming as per user request
     })
     this.alphaVantageApiKey = process.env.ALPHA_VANTAGE_API_KEY
   }
@@ -404,7 +404,7 @@ Current Quote: ${quoteSummary}
     // Use OpenAI SDK directly for lower latency streaming
     try {
       const stream = await this.openai.chat.completions.create({
-        model: 'gpt-5',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: INITIAL_ANALYSIS_PROMPT },
           { role: 'user', content: `Analyze the following comprehensive stock data bank for ${ticker} and provide your expert earnings analysis:\n\n${dataContext}` }
@@ -578,7 +578,7 @@ Current Quote: ${quoteSummary}
       ]
 
       const stream = await this.openai.chat.completions.create({
-        model: 'gpt-5',
+        model: 'gpt-4o',
         messages: openaiMessages,
         temperature: 1,
         stream: true,

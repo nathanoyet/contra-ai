@@ -32,8 +32,18 @@ export async function POST(request: NextRequest) {
 
     try {
       if (isInitial) {
+        console.log(`Generating initial insights for ticker: ${ticker}`)
         // Generate initial insights
         content = await agent.generateInitialInsights(ticker)
+        console.log(`Generated insights length: ${content?.length || 0}`)
+
+        if (!content || content.trim().length === 0) {
+          console.error('Empty content received from agent')
+          return new Response(JSON.stringify({ error: 'Failed to generate insights. Please try again.' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
 
         // Store analysis in database
         const { error: dbError } = await supabase
@@ -46,6 +56,7 @@ export async function POST(request: NextRequest) {
 
         if (dbError) {
           console.error('Error storing analysis:', dbError)
+          // Don't fail the request if DB save fails
         }
       } else {
         if (!message) {
@@ -55,12 +66,21 @@ export async function POST(request: NextRequest) {
           })
         }
 
+        console.log(`Handling follow-up for ticker: ${ticker}`)
         // Handle follow-up question
         content = await agent.handleFollowUp(
           ticker,
           message,
           (conversationHistory || []) as Array<{ role: string; content: string }>
         )
+
+        if (!content || content.trim().length === 0) {
+          console.error('Empty content received from agent for follow-up')
+          return new Response(JSON.stringify({ error: 'Failed to generate response. Please try again.' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
 
         // Store conversation in database
         const { error: dbError } = await supabase
@@ -74,6 +94,7 @@ export async function POST(request: NextRequest) {
 
         if (dbError) {
           console.error('Error storing conversation:', dbError)
+          // Don't fail the request if DB save fails
         }
       }
 
@@ -83,6 +104,7 @@ export async function POST(request: NextRequest) {
       })
     } catch (error: any) {
       console.error('Error generating insights:', error)
+      console.error('Error stack:', error.stack)
       return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },

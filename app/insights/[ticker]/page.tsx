@@ -50,6 +50,7 @@ export default function InsightsPage() {
   const loadInitialInsights = async () => {
     setLoading(true)
     try {
+      console.log(`Loading initial insights for ticker: ${ticker}`)
       const response = await fetch('/api/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,28 +58,35 @@ export default function InsightsPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to fetch insights')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Failed to fetch insights: ${response.status}`)
       }
 
       const data = await response.json()
+      console.log('Response data:', { hasContent: !!data.content, contentLength: data.content?.length })
 
       if (data.error) {
         throw new Error(data.error)
       }
 
+      if (!data.content || data.content.trim().length === 0) {
+        throw new Error('No content received from server')
+      }
+
       setMessages([
         {
           role: 'assistant',
-          content: data.content || '',
+          content: data.content,
         },
       ])
       setLoading(false)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading insights:', error)
+      const errorMessage = error?.message || 'Sorry, I encountered an error while analyzing this stock. Please try again.'
       setMessages([
         {
           role: 'assistant',
-          content: 'Sorry, I encountered an error while analyzing this stock. Please try again.',
+          content: errorMessage,
         },
       ])
       setLoading(false)
