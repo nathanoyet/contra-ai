@@ -582,10 +582,10 @@ export default function ChartPage() {
                     type="button"
                     onClick={() => setTimePeriod(period)}
                     className={`
-                      px-4 py-2 rounded-md text-sm font-medium transition-colors
+                      px-4 py-2 rounded-md text-sm font-medium transition-colors border
                       ${isSelected 
-                        ? 'bg-gray-900 text-white' 
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        ? 'bg-gray-200 text-gray-700 border-gray-300' 
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                       }
                     `}
                   >
